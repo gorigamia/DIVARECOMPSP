@@ -64,7 +64,7 @@ Not included (by design): original ISOs, extracted game assets, decrypted EBOOT/
 
 ## Running (test build / launcher flow)
 
-A Windows x64 test build (prototype) is included under `build/diva/` for convenience so testers do not need to compile first.
+A Windows x64 test build (prototype) is included under `build/diva/` for convenience so testers do not need to compile first. The ISO preparation step also requires the included executable preparer at `build/decrypt-llvm/eboot_decrypt.exe` (with `libc++.dll` and `libunwind.dll` beside it).
 
 1. Run `Jogar-DIVA.cmd` (Windows) or `build/diva/diva_launcher.exe`.
 2. Select your original **Japanese ULJM05472** ISO when prompted.

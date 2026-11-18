@@ -38,3 +38,6 @@ compile_commands.json
 !build/diva/
 !build/diva/*.exe
 !build/diva/*.dll
+!build/decrypt-llvm/
+!build/decrypt-llvm/*.exe
+!build/decrypt-llvm/*.dll
