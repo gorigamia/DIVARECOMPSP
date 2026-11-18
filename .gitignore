@@ -41,3 +41,7 @@ compile_commands.json
 !build/decrypt-llvm/
 !build/decrypt-llvm/*.exe
 !build/decrypt-llvm/*.dll
+
+# Local verification clones
+DIVARECOMPSP/
+

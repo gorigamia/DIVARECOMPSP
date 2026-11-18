@@ -44,6 +44,7 @@ public:
     // PC frame-rate modes sample once per logic frame (0 = the game's cycle):
     // the game blocks on each read until a new sample exists.
     void set_frame_interval(std::uint64_t microseconds){frame_interval_=microseconds;}
+    void set_input_offset_us(std::int64_t microseconds){input_offset_us_=microseconds;}
     std::uint64_t next_sample() const{return next_;}
     void update(std::uint64_t now){
         if(!next_)next_=now;
@@ -56,7 +57,8 @@ public:
         if(due>63u)next_+=(due-63u)*step;
         while(next_<=now){
             auto pad=timed_source_?timed_source_(next_):current;if(!analog_)pad.x=pad.y=128;
-            samples_.push_back({static_cast<std::uint32_t>(next_),pad,next_});if(samples_.size()>63)samples_.pop_front();next_+=step;
+            const auto at=static_cast<std::uint64_t>(static_cast<std::int64_t>(next_)-input_offset_us_);
+            samples_.push_back({static_cast<std::uint32_t>(at),pad,at});if(samples_.size()>63)samples_.pop_front();next_+=step;
         }
     }
     bool available() const{return !samples_.empty();}
@@ -83,7 +85,7 @@ public:
         if(taken)samples_.clear();return taken;
     }
 private:
-    unsigned cycle_=0;bool analog_=false;std::uint64_t next_=0,frame_interval_=0;
+    unsigned cycle_=0;bool analog_=false;std::uint64_t next_=0,frame_interval_=0;std::int64_t input_offset_us_=0;
     std::function<HostPad()> source_;std::function<HostPad(std::uint64_t)> timed_source_;std::deque<Sample> samples_;
     std::uint64_t interval() const{return frame_interval_?frame_interval_:cycle_?cycle_:16683u;}
 };

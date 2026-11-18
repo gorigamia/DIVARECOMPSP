@@ -78,6 +78,16 @@ Notes:
 - Runtime/config paths and cache behavior are documented in `docs/LAUNCHER.md` and `docs/CONFIGURACOES.md`.
 - This is a prototype test build: expect bugs, missing compatibility, and incomplete features (see limitations/roadmap above). Please report issues with logs and reproduction steps.
 
+### Timing calibration (important for rhythm play)
+
+The automated clear test used synthetic input that read each note's remaining time directly from game memory; it proved the input path works, but it did **not** measure real keyboard/controller timing against the audio. If you hit the beat but the game judges you as late, add this line to `config/settings.ini`:
+
+```ini
+input_offset_ms=40
+```
+
+Positive values backdate your inputs so the game treats a press as happening earlier (try `20`, `40`, `60`, ...). Use a negative value if presses are judged too early. Default is `0`. The environment variable `KON_INPUT_OFFSET_MS` overrides the file for a single run. Each launch prints `input_offset_ms=<value>` in the interactive log under `analysis/native_interactive_ja.log` inside the prepared disc cache.
+
 ## Building (high-level)
 
 > Exact toolchain setup may vary by machine. This project was developed on Windows with LLVM/MinGW-based tooling and CMake-generated MinGW makefiles.

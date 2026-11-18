@@ -2052,6 +2052,7 @@ private:
         pump_ge_interrupts(c);
     }
 public:
+    void set_input_offset_ms(std::int64_t ms){controls_.set_input_offset_us(ms*1000);}
     // Diagnostic (--dump-draws path begin_ms end_ms): one line per GE draw with
     // texture state and the decoded vertices (screen position, UV).
     std::unique_ptr<std::ofstream> draw_dump_;std::uint64_t draw_dump_begin_us_=0,draw_dump_end_us_=0;
@@ -2832,6 +2833,15 @@ int main(int argc,char** argv) {
         services.progress_capture=capture;services.capture_interval_us=static_cast<std::uint64_t>(capture_interval_ms)*1000u;
         if(!replay.empty()){services.control_replay.load(replay);std::cout<<"synthetic_controller_replay="<<replay.string()<<" (hardware input unverified)\n";}
         if(!audio_replay.empty()){services.audio_anchored_replay.load(audio_replay);services.input_anchor_channel=anchor_channel;std::cout<<"synthetic_audio_anchored_replay="<<audio_replay.string()<<" channel="<<anchor_channel<<" (timing hypotheses, hardware input unverified)\n";}
+        if(replay.empty() && audio_replay.empty() && !std::getenv("DIVA_DIAGNOSTIC_AUTOPLAY")){
+            std::int64_t offset_ms=0;
+            try{
+                if(const char* e=std::getenv("KON_INPUT_OFFSET_MS"))offset_ms=std::stoll(e);
+                else if(const auto saved=kon::read_port_setting(services.port_settings_file(),"input_offset_ms"))offset_ms=std::stoll(*saved);
+            }catch(const std::exception&){offset_ms=0;}
+            services.set_input_offset_ms(offset_ms);
+            std::cout<<"input_offset_ms="<<offset_ms<<'\n';
+        }
         active_services=&services;if(std::getenv("PSPRECOMP_WATCH_WRITE"))psprecomp::set_write_watch_observer(watch_write_stack);std::unique_ptr<kon::NativeSamplingProfiler> profiler;
         if(bootstrap) {
             services.install();
