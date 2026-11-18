@@ -1,0 +1,21 @@
+/Roms PSP/
+/analysis/
+/assets/source/
+/assets/locales/
+/build/
+/work/
+/third_party/
+/userdata/
+/config/settings.ini
+__pycache__/
+*.pyc
+/Ultima version *.cmd
+ultimo_fallo.txt
+/mods/
+/config/controls.ini
+/config/audit_private_words.txt
+/config/android-test.keystore
+/config/android-test.keystore.pass
+/dist/
+/assets/branding/base.*
+/github/

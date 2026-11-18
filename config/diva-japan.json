@@ -1,0 +1,22 @@
+{
+  "disc_id": "ULJM05472",
+  "module": "PdvApp",
+  "elf_sha256": "2f4aeea0afeeae0f001f2e4783aaeb41fca1f8b46eef0673d5774198821159ca",
+  "entry": "0x08804000",
+  "load_base": "0x08804000",
+  "import_count": 228,
+  "unit_span_bytes": 16384,
+  "apply_kon_gameplay_hooks": false,
+  "boot_verified": true,
+  "title_screen_verified": true,
+  "start_menu_verified": true,
+  "optional_log_window_verified": true,
+  "new_game_notice_verified": true,
+  "song_selection_verified": true,
+  "song_start_and_failure_result_verified": true,
+  "full_song_verified": true,
+  "verified_song": "World is Mine / NORMAL / CLEAR GREAT 504500 / synthetic controller input",
+  "video_decoder_full_movie_verified": true,
+  "opening_playback_and_return_verified": true,
+  "all_modes_verified": false
+}

@@ -1,0 +1,34 @@
+﻿# Local/runtime data - never commit
+local/
+build/
+analysis/extracted/
+analysis/*.kondraw
+analysis/*.bmp
+userdata/
+*.iso
+*.cso
+*.log
+*.pid
+
+# Caches and temp
+__pycache__/
+*.pyc
+*.pyo
+*.tmp
+config/controls.ini.tmp
+ultimo_fallo.txt
+
+# IDE/OS
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Generated build artifacts (if rebuilt locally)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
