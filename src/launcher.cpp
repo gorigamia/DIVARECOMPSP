@@ -144,11 +144,15 @@ LRESULT CALLBACK procedure(HWND target,UINT message,WPARAM w,LPARAM l){
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int){
     SetProcessDPIAware();
     wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);
-    root=fs::path(module).parent_path().parent_path().parent_path();
+    const fs::path executable=module;
+    root=executable.parent_path();
+    if(root.filename()==L"diva" && root.parent_path().filename()==L"build")root=root.parent_path().parent_path();
     int count;auto args=CommandLineToArgvW(GetCommandLineW(),&count);
     for(int i=1;i<count;++i){
-        if(std::wstring(args[i])==L"--no-log")show_log=false;
-        else if(std::wstring(args[i])==L"--diagnostic-ms" && i+1<count)diagnostic_ms=std::min(900000ul,wcstoul(args[++i],nullptr,10));
+        const std::wstring argument=args[i];
+        if(argument==L"--root" && i+1<count)root=args[++i];
+        else if(argument==L"--no-log")show_log=false;
+        else if(argument==L"--diagnostic-ms" && i+1<count)diagnostic_ms=std::min(900000ul,wcstoul(args[++i],nullptr,10));
     }
     LocalFree(args);
     // Keep one launcher/game session per installation; no competing extraction.
