@@ -32,3 +32,9 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 compile_commands.json
+
+# Allow included Windows test build binaries
+!build/
+!build/diva/
+!build/diva/*.exe
+!build/diva/*.dll

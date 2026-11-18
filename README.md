@@ -35,6 +35,20 @@ These results are environment-specific development evidence, not a compatibility
 - Custom MP3 and multiplayer features not validated.
 - Documentation in `docs/` contains historical development notes (some in Portuguese) and local evidence references.
 
+## What’s missing to make the project good
+
+This is a prototype; the following work is needed to move it toward a solid, user-testable release:
+
+- **Compatibility coverage:** validate all songs, difficulties, and game modes (including edit mode, PV/movie-related flows, menus, and edge cases) on the supported ULJM05472 profile.
+- **In-game save/load:** fully validate real in-game save creation, loading, and progression flows (service-level checks pass, but end-to-end UX is not yet proven).
+- **Timing and A/V fidelity:** measure and improve audio/video synchronization and gameplay timing/latency against real PSP behavior (including physical controller input latency, not just synthetic diagnostic input).
+- **Renderer quality and performance:** evolve from the CPU-based prototype toward a more accurate and faster renderer (correctness, visual parity, GPU acceleration where appropriate).
+- **Stability and diagnostics:** reduce crashes/hangs, improve error messages/logging for users, and make behavior more deterministic across different Windows PCs/GPUs/drivers.
+- **Feature validation:** verify custom MP3/import-related behavior and any multiplayer/ad-hoc/network features (currently unvalidated).
+- **Build and release quality:** reproducible build/toolchain setup, CI for builds/tests, packaged test releases, and clearer installation/runtime troubleshooting for testers.
+- **Documentation:** consolidate and translate/clean historical development docs, and provide a clear user guide (supported setup, controls, known issues, how to report bugs with logs).
+- **Testing infrastructure:** automated regression tests for runtime/services and scripted gameplay checks where feasible to prevent regressions as compatibility improves.
+
 ## Repository layout
 
 - `src/` — launcher, runtime, framework extensions, verification tools
@@ -48,9 +62,9 @@ These results are environment-specific development evidence, not a compatibility
 
 Not included (by design): original ISOs, extracted game assets, decrypted EBOOT/ELF from disc, local caches, build outputs, personal save data, and large local evidence artifacts.
 
-## Running (development/launcher flow)
+## Running (test build / launcher flow)
 
-This repository snapshot is prepared for source/GitHub hosting and does **not** ship prebuilt binaries. If you have a compatible local build environment and binaries built, the intended user flow is:
+A Windows x64 test build (prototype) is included under `build/diva/` for convenience so testers do not need to compile first.
 
 1. Run `Jogar-DIVA.cmd` (Windows) or `build/diva/diva_launcher.exe`.
 2. Select your original **Japanese ULJM05472** ISO when prompted.
@@ -58,8 +72,11 @@ This repository snapshot is prepared for source/GitHub hosting and does **not** 
 4. On first use, preparation/extraction can take time; subsequent runs reuse verified cached data.
 
 Notes:
+- **Windows x64 only.** The included binaries were built with LLVM/MinGW tooling; if the app fails to start, install/update the Microsoft Visual C++ runtime and ensure required DLLs in `build/diva/` and `third_party/ffmpeg/bin/` are present (Git LFS must be pulled).
+- **Python 3.9+** is required for the launcher’s preparation step (`tools/prepare_launch.py` is invoked via `py -3.9`).
 - `tools/play.ps1` supports launcher/direct-boot development modes (see `docs/LAUNCHER.md`).
 - Runtime/config paths and cache behavior are documented in `docs/LAUNCHER.md` and `docs/CONFIGURACOES.md`.
+- This is a prototype test build: expect bugs, missing compatibility, and incomplete features (see limitations/roadmap above). Please report issues with logs and reproduction steps.
 
 ## Building (high-level)
 
