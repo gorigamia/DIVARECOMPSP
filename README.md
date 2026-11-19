@@ -64,7 +64,7 @@ Not included (by design): original ISOs, extracted game assets, decrypted EBOOT/
 
 ## Running (test build / launcher flow)
 
-A Windows x64 test build (prototype) is included under `build/diva/` for convenience so testers do not need to compile first. `Jogar-DIVA.exe` at the archive root is the same native launcher as `build/diva/diva_launcher.exe`, so it can be started with a double-click (no `.cmd` needed). The ISO preparation step also requires the included executable preparer at `build/decrypt-llvm/eboot_decrypt.exe` (with `libc++.dll` and `libunwind.dll` beside it).
+A Windows x64 test build (prototype) is included under `build/diva/` for convenience so testers do not need to compile first. The packaged ZIP is available from the [v0.1.0-prototype release](https://github.com/gorigamia/DIVARECOMPSP/releases/tag/v0.1.0-prototype). `Jogar-DIVA.exe` at the archive root is the same native launcher as `build/diva/diva_launcher.exe`, so it can be started with a double-click (no `.cmd` needed). The ISO preparation step also requires the included executable preparer at `build/decrypt-llvm/eboot_decrypt.exe` (with `libc++.dll` and `libunwind.dll` beside it).
 
 1. Double-click `Jogar-DIVA.exe` (or run `Jogar-DIVA.cmd` / `build/diva/diva_launcher.exe`).
 2. Select either your original **Japanese ULJM05472** ISO or the **English v1.0** translation ISO when prompted.
