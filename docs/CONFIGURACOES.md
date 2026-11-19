@@ -8,12 +8,14 @@ F1 abre e fecha. Esc volta ao jogo; Tab alterna o foco entre a barra lateral e a
 
 | Secao | Opcoes |
 | --- | --- |
-| Graficos | Janela ou tela cheia sem bordas; monitor; quatro tamanhos de janela; proporcao original PSP, 16:9, 4:3 ou preencher; escala de pixels nitidos, suave ou inteira; contador de FPS |
+| Graficos | Janela ou tela cheia sem bordas; monitor; quatro tamanhos de janela; proporcao original PSP, 16:9, 4:3 ou preencher; escala de pixels nitidos, suave ou inteira; FPS logico (30 a 240, padrao 60); contador de FPS |
 | Som | Volume geral; mudo; estereo ou mono; balanco; silenciar em segundo plano; tamanho do buffer aplicado na proxima abertura |
 | Controles | Perfis de teclado, Xbox, PlayStation, Nintendo e HID generico; oito acoes PSP remapeaveis; captura de tecla no perfil de teclado |
 | Sistema | Mostrar/ocultar log; voltar ao jogo |
 
 As configuracoes sao salvas em `config/settings.ini` da instalacao, inclusive quando os dados do disco estao no cache do launcher. Os mapeamentos usam `config/controls.ini`, sao mantidos separados por perfil e entram em vigor na proxima abertura. Ao selecionar uma linha de teclado, pressione a tecla desejada; Esc cancela a captura.
+
+A linha de FPS troca a taxa logica em tempo real e salva `logic_fps` em `config/settings.ini`. O relogio de 60 FPS funciona tambem com o renderer CPU: o VBlank do DIVA e disparado pelo dobro da taxa logica, entao musicas, animacoes e julgamento mantem a velocidade original. A linha de proporcao com 16:9 preenche monitores widescreen e deixa barras pretas em monitores 4:3 antigos. A escala suave (padrao) reduz os serrilhados; a escala nitida mantem o pixel original e a inteira evita pixels cortados.
 
 O renderer atual continua sendo CPU, com resolucao interna original 480 x 272. Tamanho da janela, proporcao e filtro alteram a apresentacao da imagem pronta; nao sao renderizacao interna em HD nem uma alteracao do campo de visao do jogo. Tela cheia usa o monitor selecionado e sua frequencia atual, sem mudar o modo do Windows. Os tamanhos de janela sao limitados a area disponivel do monitor. O menu e ajustado proporcionalmente a janela, inclusive em monitores 16:9 e nos outros formatos.
 

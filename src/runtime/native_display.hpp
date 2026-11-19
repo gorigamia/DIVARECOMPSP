@@ -299,7 +299,7 @@ private:
         if(factor==1)std::memcpy(compose_bits_,pixels_.data(),std::size_t(width)*height*4u);
         else for(int y=0;y<height;++y){const auto* in=&pixels_[std::size_t(y/2)*width_];auto* out=compose_bits_+std::size_t(y)*width;for(int x=0;x<width;++x)out[x]=in[x/2];}
         draw_overlay(compose_dc_,width,height);GdiFlush();
-        try{vulkan_->present(compose_bits_,unsigned(width),unsigned(height),true);return true;}
+        try{vulkan_->present(compose_bits_,unsigned(width),unsigned(height),true,DivaPreferences::aspect);return true;}
         catch(const std::exception& error){vulkan_.reset();std::lock_guard lock(mutex_);presenter_name_=std::string("gdi (vulkan failed: ")+error.what()+")";return false;}
     }
 #endif
@@ -491,7 +491,7 @@ private:
             if((compose || self->direct_frame_) && self->vulkan_)try{
                 if(auto* image=self->vulkan_->begin_frame(self->width_,self->height_)){
                     if(compose){compose(image);compose={};self->direct_frame_=true;self->pixels_.clear();}
-                    self->overlay_into(image,self->width_,self->height_);shown=self->vulkan_->end_frame(true);}
+                    self->overlay_into(image,self->width_,self->height_);shown=self->vulkan_->end_frame(true,DivaPreferences::aspect);}
             }catch(const std::exception& error){self->vulkan_.reset();std::lock_guard lock(self->mutex_);self->presenter_name_=std::string("gdi (vulkan failed: ")+error.what()+")";}
 #endif
             if(compose){self->pixels_.resize(std::size_t(self->width_)*self->height_);compose(self->pixels_.data());}

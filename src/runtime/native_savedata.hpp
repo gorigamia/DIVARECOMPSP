@@ -2,8 +2,12 @@
 #include "native_files.hpp"
 #include "native_save_container.hpp"
 #include "psprecomp/guest_memory.hpp"
+#include <algorithm>
 #include <array>
+#include <filesystem>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace kon {
 // Native AUTOLOAD/AUTOSAVE lifecycle. The game state lives in a versioned
@@ -23,12 +27,17 @@ public:
         request_.fill(0);request_size_=size;
         for(unsigned n=0;n<size;++n)request_[n]=memory_.load8(pointer+n);
         mode_=word(48);
-        if(mode_>1u)throw std::runtime_error("Savedata mode "+std::to_string(mode_)+" requires native storage/dialog implementation");
-        game_=name(60,13);save_=name(76,20);file_=name(100,13);
-        if(game_.empty() || save_.empty() || file_.empty())throw std::runtime_error("Savedata name-list selection requires native implementation");
+        if(mode_>5u)throw std::runtime_error("Savedata mode "+std::to_string(mode_)+" requires native storage/dialog implementation");
+        game_=name(60,13);file_=name(100,13);
+        if(game_.empty() || file_.empty())throw std::runtime_error("Savedata game/file name is missing");
+        save_=resolve_save_name(pointer);
+        if(save_.empty()){
+            if(is_save_mode())throw std::runtime_error("Savedata save mode requires an explicit save slot");
+        }else validate_name(save_);
         bool disc=false;directory_=files_.resolve("ms0:/PSP/SAVEDATA/"+game_+save_,disc);
         path_=files_.resolve("ms0:/PSP/SAVEDATA/"+game_+save_+"/"+file_,disc);
         native_path_=files_.resolve("ms0:/PSP/SAVEDATA/"+game_+save_+"/"+file_+".konpc",disc);
+        if(is_list_mode())for(unsigned n=0;n<20u;++n)memory_.store8(pointer+76u+n,n<save_.size()?static_cast<std::uint8_t>(save_[n]):0u);
         pointer_=pointer;started_=true;status_=1u;deadline_=now+200000u;
         return 0;
     }
@@ -36,7 +45,7 @@ public:
     std::uint32_t update(std::uint64_t now){
         if(!started_)return wrong_type;
         advance(now);if(status_!=2u)return invalid_status;
-        if(mode_==1u){save_native();result_=0;memory_.store32(pointer_+28u,result_);status_=3u;return 0;}
+        if(is_save_mode()){save_native();result_=0;memory_.store32(pointer_+28u,result_);status_=3u;return 0;}
         if(std::filesystem::exists(native_path_)){load_native();result_=0;memory_.store32(pointer_+28u,result_);status_=3u;return 0;}
         // Never disguise an existing PSP save as absent, or copy encrypted
         // bytes into the unencrypted buffer supplied by the original game.
@@ -60,6 +69,7 @@ public:
         status_=4u;deadline_=now+2000u;return 0;
     }
     std::uint32_t mode()const{return mode_;}
+    const std::string& save_name()const{return save_;}
     std::uint32_t result()const{return result_;}
     bool startup_complete()const{return started_ && status_==0u && mode_==0u && (result_==no_data || result_==0u);}
     const std::filesystem::path& path()const{return path_;}
@@ -70,6 +80,70 @@ private:
     std::uint32_t pointer_=0,mode_=0,status_=0,result_=0,request_size_=0;
     std::uint64_t deadline_=0;bool started_=false;
     std::string game_,save_,file_;std::filesystem::path path_,directory_,native_path_;
+    bool is_save_mode()const{return mode_==1u || mode_==3u || mode_==5u;}
+    bool is_list_mode()const{return mode_==4u || mode_==5u;}
+    std::string guest_string(unsigned address,unsigned limit)const{
+        std::string value;
+        for(unsigned n=0;n<limit;++n){
+            if(!address || !memory_.contains(address+n,1))break;
+            const auto ch=memory_.load8(address+n);
+            if(!ch)break;
+            value.push_back(static_cast<char>(ch));
+        }
+        return value;
+    }
+    void validate_name(const std::string& value)const{
+        for(const auto ch:value)if(ch<' ' || ch=='/' || ch=='\\' || ch==':' || ch=='<' || ch=='>' || ch=='"' || ch=='|' || ch=='?' || ch=='*')throw std::runtime_error("Unsafe savedata name");
+        if(value=="." || value==".." || (!value.empty() && (value.back()=='.' || value.back()==' ')))throw std::runtime_error("Unsafe savedata name");
+    }
+    bool native_slot_exists(const std::string& slot)const{
+        if(slot.empty())return false;
+        bool disc=false;
+        return std::filesystem::exists(files_.resolve("ms0:/PSP/SAVEDATA/"+game_+slot+"/"+file_+".konpc",disc));
+    }
+    std::string list_slot(unsigned pointer)const{
+        const auto list=memory_.load32(pointer+96u);
+        std::string first;
+        for(unsigned i=0;i<100;++i){
+            const auto entry=guest_string(list+static_cast<unsigned>(i*20u),20u);
+            if(entry.empty())break;
+            if(entry=="<>")continue;
+            validate_name(entry);
+            if(first.empty())first=entry;
+            if(native_slot_exists(entry))return entry;
+        }
+        return first;
+    }
+    std::string existing_slot()const{
+        bool disc=false;
+        const auto base=files_.resolve("ms0:/PSP/SAVEDATA",disc);
+        std::error_code error;
+        if(!std::filesystem::exists(base,error))return {};
+        struct Slot{std::string name;std::filesystem::file_time_type when;};
+        std::vector<Slot> slots;
+        for(std::filesystem::directory_iterator it(base,error),end;!error && it!=end;it.increment(error)){
+            if(!it->is_directory(error))continue;
+            const auto folder=it->path().filename().string();
+            if(folder.size()<=game_.size() || !folder.starts_with(game_))continue;
+            auto slot=folder.substr(game_.size());
+            validate_name(slot);
+            const auto native=it->path()/(file_+".konpc");
+            if(!std::filesystem::exists(native,error))continue;
+            slots.push_back({slot,std::filesystem::last_write_time(native,error)});
+        }
+        if(slots.empty())return {};
+        std::sort(slots.begin(),slots.end(),[](const Slot& a,const Slot& b){return a.when>b.when;});
+        return slots.front().name;
+    }
+    std::string resolve_save_name(unsigned pointer)const{
+        auto save=guest_string(pointer+76u,20u);
+        if(save=="<>")save.clear();
+        if(!save.empty())return save;
+        const auto selected=list_slot(pointer);
+        if(!selected.empty())return selected;
+        const auto existing=existing_slot();
+        return existing;
+    }
     void validate_identity(const NativeSaveContainer& save)const{
         if(save.game!=game_ || save.slot!=save_ || save.file!=file_)throw std::runtime_error("Native savedata identity mismatch");
         if(request_size_>=1516u)for(unsigned n=0;n<16;++n)if(save.key[n]!=request_[1500u+n])throw std::runtime_error("Native savedata game key mismatch");
@@ -100,12 +174,8 @@ private:
     std::uint32_t word(unsigned offset)const{return request_[offset]|(std::uint32_t(request_[offset+1])<<8u)|(std::uint32_t(request_[offset+2])<<16u)|(std::uint32_t(request_[offset+3])<<24u);}
     std::string name(unsigned offset,unsigned limit)const{
         std::string value;
-        for(unsigned n=0;n<limit && request_[offset+n];++n){const auto ch=request_[offset+n];
-            if(ch<' ' || ch=='/' || ch=='\\' || ch==':' || ch=='<' || ch=='>' || ch=='"' || ch=='|' || ch=='?' || ch=='*')
-                throw std::runtime_error("Unsafe savedata name");
-            value.push_back(static_cast<char>(ch));
-        }
-        if(value=="." || value==".." || (!value.empty() && (value.back()=='.' || value.back()==' ')))throw std::runtime_error("Unsafe savedata name");
+        for(unsigned n=0;n<limit && request_[offset+n];++n)value.push_back(static_cast<char>(request_[offset+n]));
+        validate_name(value);
         return value;
     }
 };

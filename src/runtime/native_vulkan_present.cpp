@@ -2,6 +2,7 @@
 #include "native_vulkan_present.hpp"
 #include <vulkan/vulkan.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
@@ -16,6 +17,7 @@ struct NativeVulkanPresenter::Impl {
     VkCommandPool pool=VK_NULL_HANDLE;VkCommandBuffer command=nullptr;VkFence fence=VK_NULL_HANDLE;VkSemaphore acquired=VK_NULL_HANDLE;bool submitted=false,stale=false;
     VkBuffer staging=VK_NULL_HANDLE;VkDeviceMemory staging_memory=VK_NULL_HANDLE;void* mapped=nullptr;VkDeviceSize staging_size=0;
     VkImage source=VK_NULL_HANDLE;VkDeviceMemory source_memory=VK_NULL_HANDLE;unsigned source_width=0,source_height=0;
+    int aspect=0;
     VkPhysicalDeviceMemoryProperties memory_properties{};
 #define FN(n) PFN_##n n=nullptr
     FN(vkGetInstanceProcAddr);FN(vkCreateInstance);FN(vkDestroyInstance);FN(vkCreateWin32SurfaceKHR);FN(vkDestroySurfaceKHR);
@@ -171,9 +173,9 @@ struct NativeVulkanPresenter::Impl {
         b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.image=image;b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
         s.vkCmdPipelineBarrier(s.command,src_stage,dst_stage,0,0,nullptr,0,nullptr,1,&b);
     }
-    bool present(const std::uint32_t* pixels,unsigned width,unsigned height,bool linear){
+    bool present(const std::uint32_t* pixels,unsigned width,unsigned height,bool linear,int aspect){
         auto* target=begin(width,height);if(!target)return false;
-        std::memcpy(target,pixels,staging_size);return end(linear);
+        std::memcpy(target,pixels,staging_size);return end(linear,aspect);
     }
     std::uint32_t* begin(unsigned width,unsigned height){
         if(!width || !height)return nullptr;
@@ -183,7 +185,7 @@ struct NativeVulkanPresenter::Impl {
         if(submitted){check(vkWaitForFences(device,1,&fence,VK_TRUE,5000000000ull),"Wait presentation");submitted=false;}
         return static_cast<std::uint32_t*>(mapped);
     }
-    bool end(bool linear){
+    bool end(bool linear,int aspect){
         if(!swapchain || !mapped)return false;
         const unsigned width=source_width,height=source_height;
         unsigned index=0;auto result=vkAcquireNextImageKHR(device,swapchain,UINT64_MAX,acquired,VK_NULL_HANDLE,&index);
@@ -208,7 +210,24 @@ struct NativeVulkanPresenter::Impl {
             scale=1.0;const int cw=std::min(int(width),int(extent.width)),ch=std::min(int(height),int(extent.height));
             sx0=(int(width)-cw)/2;sy0=(int(height)-ch)/2;sx1=sx0+cw;sy1=sy0+ch;
         }
-        const int w=std::max(1,int((sx1-sx0)*scale)),h=std::max(1,int((sy1-sy0)*scale)),x=(int(extent.width)-w)/2,y=(int(extent.height)-h)/2;
+        int w=std::max(1,int((sx1-sx0)*scale)),h=std::max(1,int((sy1-sy0)*scale));
+        // Vulkan used to stretch the frame to every pixel of the swapchain,
+        // ignoring the "Proporcao da imagem" menu/GDI setting. Match it:
+        // 0 PSP 480x272, 1 16:9, 2 4:3, 3 fill the window. Older 4:3
+        // monitors now get black bars instead of a distorted picture and
+        // widescreen monitors can show the real 16:9 image.
+        float wanted=float(w)/float(h);
+        if(aspect==1)wanted=16.f/9.f;
+        else if(aspect==2)wanted=4.f/3.f;
+        else if(aspect==0)wanted=480.f/272.f;
+        else wanted=-1.f;
+        if(wanted>0.f){
+            const float window_aspect=float(extent.width)/float(extent.height);
+            if(window_aspect>wanted)h=std::max(1,int(std::lround(double(extent.width)/wanted)));
+            else if(window_aspect<wanted)w=std::max(1,int(std::lround(double(extent.height)*wanted)));
+            w=std::min(w,int(extent.width));h=std::min(h,int(extent.height));
+        }
+        const int x=(int(extent.width)-w)/2,y=(int(extent.height)-h)/2;
         VkImageBlit blit{};blit.srcSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.srcOffsets[0]={sx0,sy0,0};blit.srcOffsets[1]={sx1,sy1,1};
         blit.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};blit.dstOffsets[0]={x,y,0};blit.dstOffsets[1]={x+w,y+h,1};
         vkCmdBlitImage(command,source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,target,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,linear?VK_FILTER_LINEAR:VK_FILTER_NEAREST);
@@ -228,10 +247,10 @@ struct NativeVulkanPresenter::Impl {
 };
 NativeVulkanPresenter::NativeVulkanPresenter(HWND window,const std::string& preferred):impl_(std::make_unique<Impl>(window,preferred)){}
 NativeVulkanPresenter::~NativeVulkanPresenter()=default;
-bool NativeVulkanPresenter::present(const std::uint32_t* bgra,unsigned width,unsigned height,bool linear){return impl_->present(bgra,width,height,linear);}
+bool NativeVulkanPresenter::present(const std::uint32_t* bgra,unsigned width,unsigned height,bool linear,int aspect){impl_->aspect=aspect;return impl_->present(bgra,width,height,linear,aspect);}
 void NativeVulkanPresenter::resized(){impl_->stale=true;}
 std::uint32_t* NativeVulkanPresenter::begin_frame(unsigned width,unsigned height){return impl_->begin(width,height);}
-bool NativeVulkanPresenter::end_frame(bool linear){return impl_->end(linear);}
+bool NativeVulkanPresenter::end_frame(bool linear,int aspect){impl_->aspect=aspect;return impl_->end(linear,aspect);}
 const std::string& NativeVulkanPresenter::adapter()const{return impl_->name;}
 const std::string& NativeVulkanPresenter::present_mode()const{return impl_->present_mode;}
 }

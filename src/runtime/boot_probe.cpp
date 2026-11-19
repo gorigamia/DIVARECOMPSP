@@ -43,6 +43,8 @@
 #include <array>
 #include <unordered_map>
 #include <bit>
+#include <cstdlib>
+#include <fstream>
 #include <cmath>
 #include <span>
 #include <set>
@@ -84,7 +86,13 @@ void set_runtime_post_import_hook(void (*hook)(Runtime&,AllegrexContext&)) noexc
 namespace {
 constexpr std::uint32_t kReturnPc=0x08000100u;
 constexpr std::uint32_t kSettingsFpsScratch=0x08400000u; // kernel RAM, outside the game's partition
-constexpr const char* kElfHash="2f4aeea0afeeae0f001f2e4783aaeb41fca1f8b46eef0673d5774198821159ca";
+constexpr const char* kElfHashJapanese="2f4aeea0afeeae0f001f2e4783aaeb41fca1f8b46eef0673d5774198821159ca";
+constexpr const char* kElfHashEnglish="785576c10a927050569bb1cc283798b4f6bb2ac6f4dc5f45d3c387e6ff04acc4";
+const char* elf_profile(const std::string& hash){
+    if(hash==kElfHashJapanese)return "ja";
+    if(hash==kElfHashEnglish)return "en";
+    return nullptr;
+}
 enum class WaitKind {None,Event,Semaphore,Mutex,Delay,ThreadEnd,GeList,GeDraw,Audio,LwMutex,Controller,Codec,Sleep,Network};
 struct Thread {
     std::uint32_t uid,entry,priority,stack_base,stack_size,attributes;
@@ -246,7 +254,7 @@ public:
     std::filesystem::path port_settings_path;
     std::filesystem::path port_settings_file()const{return port_settings_path.empty()?content_.root()/"config"/"settings.ini":port_settings_path;}
     void apply_fps_choice(){
-        const auto fps=settings_fps_->rate();logic_rate.set_target(fps);
+        const auto fps=settings_fps_->rate();logic_rate.set_target(fps);set_pc_frame_rate(fps);
         const bool saved=kon::write_port_setting(port_settings_file(),"logic_fps",std::to_string(fps));
         calls.push_back("SettingsFps rate="+std::to_string(fps)+" saved="+std::to_string(saved));
     }
@@ -448,6 +456,7 @@ public:
     unsigned verified_render_frames=0,rejected_render_frames=0,requested_render_frames=0;
     std::uint64_t verify_render_after_us=0;
     std::array<std::uint64_t,4> vblank_waits_{}; // WaitVblankStartCB, then MultiCB with 1, 2, 3+ cycles
+    std::uint64_t pc_cb_deadline_=0; // paces the game's main vblank callback above 30 FPS
     std::array<std::uint64_t,4> time_calls_{}; // GetSystemTimeLow, GetSystemTimeWide, RtcGetCurrentTick, AtracGetNextSample
     unsigned logic_vblank_cycles=0;
     std::uint32_t screenshot_status_=0,screenshot_params_=0;
@@ -734,7 +743,8 @@ public:
         rt.register_hle("sceUtility",0x50C4CD57u,[this](auto&,auto& c){
             try{
             const auto result=savedata_.init(c.gpr[4],clock_.system_microseconds());
-            calls.push_back("SavedataInitStart mode="+std::to_string(savedata_.mode())+" path="+savedata_.path().string()+" native_path="+savedata_.native_path().string()+" data_size="+std::to_string(rt.memory().load32(c.gpr[4]+124u))+" result="+psprecomp::hex32(result));c.set_gpr(2,result);
+            calls.push_back("SavedataInitStart mode="+std::to_string(savedata_.mode())+" save='"+savedata_.save_name()+"' path="+savedata_.path().string()+" native_path="+savedata_.native_path().string()+" data_size="+std::to_string(rt.memory().load32(c.gpr[4]+124u))+" result="+psprecomp::hex32(result));
+            c.set_gpr(2,result);
             }catch(const std::exception& error){rt.stop(error.what());}
         });
         rt.register_hle("sceUtility",0xD4B95FFBu,[this](auto&,auto& c){
@@ -1122,9 +1132,22 @@ public:
         rt.register_hle("sceDisplay",0x46F186C3u,[this](auto&,auto& c){
             if(!dispatch_callbacks(c))return;
             ++vblank_waits_[0];
-            if(ram_snapshot_count)ram_snapshot(clock_.system_microseconds());
-            if(!ram_variation_file.empty())ram_variation(clock_.system_microseconds());
-            block_wait(c,WaitKind::Delay,0,0,0,0,0,display_.until_next_vblank(clock_.system_microseconds()),true);
+            const auto now=clock_.system_microseconds();
+            if(ram_snapshot_count)ram_snapshot(now);
+            if(!ram_variation_file.empty())ram_variation(now);
+            std::uint64_t delay=display_.until_next_vblank(now);
+            if(!logic_rate.original()){
+                // The game's main loop waits here (sceDisplayWaitVblankStartCB).
+                // In the original 30 FPS mode the display's real vblank paces
+                // it. For a PC rate we use our own timeline: without this the
+                // logic-rate setting above only changed constants the generated
+                // code never reads, so the game stayed locked at ~30 FPS.
+                const auto period=1000000u/logic_rate.target();
+                if(!pc_cb_deadline_ || pc_cb_deadline_<=now || pc_cb_deadline_>now+2u*period)pc_cb_deadline_=now+period;
+                delay=pc_cb_deadline_-now;
+                display_.latch_now();
+            }else pc_cb_deadline_=0;
+            block_wait(c,WaitKind::Delay,0,0,0,0,0,delay,true);
         });
         const auto enqueue=[this](auto&,auto& c,bool front){
             unsigned stack_limit=32;
@@ -1838,11 +1861,18 @@ private:
     std::map<std::uint32_t,std::int64_t> diva_async_results_;
     struct DivaSubInterrupt {std::uint32_t address,argument;bool enabled=false;};
     std::map<std::uint32_t,DivaSubInterrupt> diva_subinterrupts_;
-    std::uint64_t diva_last_vblank_=0;
+    std::uint64_t diva_last_vblank_=0,diva_vblank_pulses_=0;
     void pump_diva_vblank(psprecomp::AllegrexContext& c) {
         if(callback_depth_ || !interrupts_enabled_ || rt.stopped())return;
         const auto frame=display_.frame_count(clock_.system_microseconds());
         if(frame==diva_last_vblank_)return;diva_last_vblank_=frame;
+        // DIVA's logic advances on every second VBlank interrupt (60 Hz original).
+        // In PC modes the display timeline runs at twice the target FPS, so the
+        // same two-interrupt step is one logic frame at the requested rate.
+        if(++diva_vblank_pulses_%2u==0){
+            if(logic_rate.original())logic_rate.original_frame();
+            else logic_rate.pace(clock_.system_microseconds());
+        }
         for(const auto& [key,handler]:diva_subinterrupts_){
             if((key>>16)!=30u || !handler.enabled)continue;
             if(!ge_interrupt_stack_){const auto uid=arena_.allocate(1,16384);const auto block=arena_.block(uid);
@@ -1864,7 +1894,14 @@ private:
     std::vector<std::array<std::uint64_t,6>> frame_samples_;
     std::uint64_t next_frame_sample_us_=0;
     std::uint64_t interrupt_suspend_calls_=0,interrupt_resume_calls_=0,next_progress_us_=5000000,next_capture_us_=0;
-public: std::uint64_t capture_begin_us=0; // --capture-begin-ms: periodic captures start here (diagnostics)
+public:
+    void set_pc_frame_rate(unsigned fps){
+        const bool pc=!logic_rate.original();
+        display_.set_pc_presentation(pc);
+        display_.set_refresh_hz(pc?fps*2u:60u,clock_.system_microseconds());
+        controls_.set_frame_interval(pc?1000000u/fps:0u);
+    }
+    std::uint64_t capture_begin_us=0; // --capture-begin-ms: periodic captures start here (diagnostics)
 private:
     std::uint64_t nonblocking_semaphore_waits_=0;
     std::uint32_t running_uid_=0;
@@ -2722,7 +2759,9 @@ int main(int argc,char** argv) {
         if(!replay.empty() && window && !show_test_window)std::cout<<"synthetic_input_window=1 (test replay; hardware input ignored)\n";
         if(capture_interval_ms && capture.empty())throw std::runtime_error("Periodic captures require --capture-frame path");
         const auto executable=content.root()/"local/japan/EBOOT.ELF";
-        if(psprecomp::sha256_file(executable)!=kElfHash) throw std::runtime_error("Wrong ELF: rebuild generated code for this input");
+        const auto elf_hash=psprecomp::sha256_file(executable);
+        const auto* elf_profile_id=elf_profile(elf_hash);
+        if(!elf_profile_id) throw std::runtime_error("Wrong ELF: rebuild generated code for this input");
         psprecomp::Runtime runtime;
         const auto image=psprecomp::Elf32Image::from_file(executable);
         const auto reloc=image.load_and_relocate(runtime.memory());
@@ -2772,7 +2811,6 @@ int main(int argc,char** argv) {
         services.running_language_=content.language();if(services.settings_fps_){services.settings_fps_->set_language(content.language());
             // One disc installed: the language column stays on it.
             const auto langs=content.available_languages();services.settings_fps_->set_language_choice(std::count(langs.begin(),langs.end(),"ja") && std::count(langs.begin(),langs.end(),"en"));}
-        if(!logic_fps){const auto saved=kon::read_port_setting(services.port_settings_file(),"logic_fps");try{logic_fps=saved?std::stoul(*saved):30u;}catch(const std::exception&){logic_fps=30u;}if(!kon::NativeLogicRate::supported(logic_fps))logic_fps=30u;}
         // Screen mode: the window opens full screen when that was saved (played windows only).
         // FPS counter (F3): saved as show_fps in config/settings.ini.
         if(window && !show_test_window){const auto file=services.port_settings_file();const auto saved=kon::read_port_setting(file,"show_fps");
@@ -2781,7 +2819,7 @@ int main(int argc,char** argv) {
         if(window && !show_test_window){const auto saved=kon::read_port_setting(services.port_settings_file(),"fullscreen");const bool full=saved && *saved=="1";
             services.init_screen_mode(full);}
         else if(test_fullscreen)services.init_screen_mode(true); // visible tests at the screen's real resolution
-        services.logic_rate.set_target(logic_fps);if(services.settings_fps_)services.settings_fps_->set_rate(logic_fps);services.logic_rate.set_fixed_step(logic_fixed_step);
+        if(services.settings_fps_)services.settings_fps_->set_rate(logic_fps);
         services.ram_snapshot_dir=ram_dir;services.ram_snapshot_start_us=ram_start_ms*1000u;services.ram_snapshot_interval_us=ram_interval_ms*1000u;services.ram_snapshot_count=ram_dir.empty()?0u:ram_count;services.capture_begin_us=capture_begin_ms*1000u;if(speed_audit_ms){services.speed_audit_start_us=speed_audit_start_ms*1000u;services.speed_audit_end_us=(speed_audit_start_ms+speed_audit_ms)*1000u;services.logic_rate.set_jitter(true);services.logic_rate.set_fixed_step(true);}services.ram_variation_file=ram_variation_file;services.ram_variation_start_us=ram_variation_start_ms*1000u;services.ram_variation_end_us=(ram_variation_start_ms+ram_variation_ms)*1000u;
         if(!trace_frames.empty()){services.trace_begin_us=trace_begin_ms*1000;services.trace_end_us=trace_end_ms*1000;}
         if(vulkan_raster){if(!gpu_clear->raster_supported())throw std::runtime_error("Vulkan raster requires shaderInt64");services.set_gpu_raster(gpu_clear.get());
@@ -2798,6 +2836,12 @@ int main(int argc,char** argv) {
         if(vulkan_clear)services.set_gpu_clear(gpu_clear.get());
         if(vulkan_triangles)services.set_gpu_triangles(gpu_clear.get());
 #endif
+        if(!logic_fps){const auto saved=kon::read_port_setting(services.port_settings_file(),"logic_fps");try{logic_fps=saved?std::stoul(*saved):30u;}catch(const std::exception&){logic_fps=30u;}if(!kon::NativeLogicRate::supported(logic_fps))logic_fps=30u;}
+        services.logic_rate.set_target(logic_fps);services.logic_rate.set_fixed_step(logic_fixed_step);
+        // DIVA has no K-On settings/vblank HLE: drive its VBlank interrupt at
+        // twice the logic rate and publish PC-mode constants once per frame.
+        services.set_pc_frame_rate(logic_fps);
+        std::cout<<"native_logic_fps="<<logic_fps<<" original="<<services.logic_rate.original()<<'\n';
         std::cout<<"persistent_texture_cache="<<persistent_texture_cache<<" (experimental; whole-game speed benefit unverified)\n";
         if(window && !show_test_window)services.calls.stream=&interactive_log;
         else services.calls.stream=&std::cout;
@@ -2858,7 +2902,8 @@ int main(int argc,char** argv) {
         std::cout<<"Native AOT bootstrap diagnostic; playable_port=false\n"
                  <<"language="<<content.language()<<"\nstd="<<content.resolve("disc0:/PSP_GAME/USRDIR/media/afs/DivaDataList.afs").string()<<"\n"
                  <<"sound="<<content.resolve("disc0:/PSP_GAME/USRDIR/media/afs/DivaSoundList.afs").string()<<"\n"
-                 <<"ELF_SHA256="<<kElfHash<<"\nentry="<<psprecomp::hex32(image.runtime_entry())<<"\nimports="<<imports.size()<<"\n";
+                  <<"ELF_SHA256="<<elf_hash<<"\nELF_PROFILE="<<elf_profile_id<<"\nentry="<<psprecomp::hex32(image.runtime_entry())<<"\nimports="<<imports.size()<<"\n";
+
         psprecomp::set_runtime_thread_identity(1,"module_start");
         const auto report_missing_import=[&] {
             const auto missing=runtime.stop_reason().starts_with("Missing HLE import ");

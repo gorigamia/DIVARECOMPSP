@@ -21,12 +21,13 @@ public:
     ~NativeVulkanPresenter();
     NativeVulkanPresenter(const NativeVulkanPresenter&)=delete;
     NativeVulkanPresenter& operator=(const NativeVulkanPresenter&)=delete;
-    // Returns false when the window currently has no drawable area.
-    bool present(const std::uint32_t* bgra,unsigned width,unsigned height,bool linear_filter);
+    // Returns false when the window currently has no drawable area. `aspect`
+    // matches DivaPreferences::aspect: 0 PSP, 1 16:9, 2 4:3, 3 fill.
+    bool present(const std::uint32_t* bgra,unsigned width,unsigned height,bool linear_filter,int aspect=0);
     // Same as present, in two steps: the caller writes the image straight
     // into the returned upload memory (width*height BGRA words), then submits.
     std::uint32_t* begin_frame(unsigned width,unsigned height);
-    bool end_frame(bool linear_filter);
+    bool end_frame(bool linear_filter,int aspect=0);
     // The window changed size (full screen toggled): the next present rebuilds the swapchain.
     void resized();
     const std::string& adapter()const;

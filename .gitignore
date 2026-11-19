@@ -46,3 +46,8 @@ compile_commands.json
 DIVARECOMPSP/
 MIKUPSPORT/
 
+# Generated files from a local rebuild
+build/diva/Makefile
+build/diva/*.a
+build/framework-llvm/
+

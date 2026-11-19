@@ -11,7 +11,8 @@ from datetime import datetime
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def main(seconds, window, replay, output=None, userdata=None, mute=False, capture_interval=0):
+def main(seconds, window, replay, output=None, userdata=None, mute=False, capture_interval=0,
+         logic_fps=None, internal_scale=None, gpu=False):
     folder = (output or ROOT / 'local/boot').resolve()
     folder.relative_to(ROOT)
     folder.mkdir(parents=True, exist_ok=True)
@@ -25,10 +26,18 @@ def main(seconds, window, replay, output=None, userdata=None, mute=False, captur
     (folder / 'run.json').unlink(missing_ok=True)
     (folder / 'frame.png').unlink(missing_ok=True)
     command = [str(ROOT / 'build/diva/diva_boot.exe'), '--root', str(ROOT),
-               '--language', 'ja', '--bootstrap', '--cpu-renderer',
+               '--language', 'ja', '--bootstrap',
                '--max-runtime-ms', str(seconds * 1000),
                '--max-dispatches', '1000000000',
                '--capture-frame', str(folder / 'frame.bmp')]
+    if gpu:
+        command += ['--vulkan-raster']
+    else:
+        command += ['--cpu-renderer']
+    if logic_fps:
+        command += ['--logic-fps', str(logic_fps)]
+    if internal_scale:
+        command += ['--internal-scale', str(internal_scale)]
     if window:
         command += ['--show-test-window']
     if replay:
@@ -59,7 +68,7 @@ def main(seconds, window, replay, output=None, userdata=None, mute=False, captur
               'stop_reason':reason,'expected_timed_stop':passed,
               'frame_captured':(folder / 'frame.bmp').exists(),
               'synthetic_autoplay': bool(os.environ.get('DIVA_DIAGNOSTIC_AUTOPLAY')),
-              'audio_muted': mute}
+               'audio_muted': mute,'logic_fps': logic_fps,'internal_scale': internal_scale,'gpu_raster': gpu}
     (folder / 'run.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
     print(json.dumps(record, indent=2))
     prefixes=('worker_stop=','module_stop=','missing_','native_elapsed_ms=','frame_capture=','Diagnostic failed:')
@@ -76,7 +85,15 @@ if __name__ == '__main__':
     parser.add_argument('--userdata', type=Path)
     parser.add_argument('--mute', action='store_true')
     parser.add_argument('--capture-interval-ms', type=int, default=0)
+    parser.add_argument('--logic-fps', type=int)
+    parser.add_argument('--internal-scale', type=int)
+    parser.add_argument('--gpu', action='store_true', help='use Vulkan raster instead of the deterministic CPU renderer')
     args = parser.parse_args()
     if not 1 <= args.seconds <= 900:
         parser.error('seconds must be between 1 and 900')
-    raise SystemExit(main(args.seconds, args.window, args.replay,args.output,args.userdata,args.mute,args.capture_interval_ms))
+    if args.logic_fps and not 30 <= args.logic_fps <= 240:
+        parser.error('logic-fps must be between 30 and 240')
+    if args.internal_scale and not 1 <= args.internal_scale <= 4:
+        parser.error('internal-scale must be between 1 and 4')
+    raise SystemExit(main(args.seconds, args.window, args.replay,args.output,args.userdata,args.mute,
+                          args.capture_interval_ms,args.logic_fps,args.internal_scale,args.gpu))

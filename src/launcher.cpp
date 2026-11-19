@@ -87,14 +87,21 @@ void prepare_and_launch(){
         if(!started){CloseHandle(read_pipe);throw std::runtime_error("Python 3.9 nao foi encontrado. Instale as dependencias do projeto para preparar a ISO.");}
         fs::create_directories(root/L"local");
         std::ofstream log(root/L"local/launcher.log",std::ios::binary);
-        std::string pending,error;fs::path prepared;char buffer[4096];DWORD received;
+        std::string pending,error,profile="ja";fs::path prepared;char buffer[4096];DWORD received;
         auto consume=[&](std::string line){
             if(!line.empty() && line.back()=='\r')line.pop_back();
             if(line.starts_with("PROGRESS|")){
                 auto separator=line.find('|',9);if(separator!=std::string::npos){
                     try{update(std::stoi(line.substr(9,separator-9)),wide(line.substr(separator+1)));}catch(...){}
                 }
-            }else if(line.starts_with("READY|"))prepared=fs::path(wide(line.substr(6)));
+            }else if(line.starts_with("READY|")){
+                const auto rest=line.substr(6);const auto separator=rest.find('|');
+                prepared=fs::path(wide(rest.substr(0,separator)));
+                if(separator!=std::string::npos){
+                    const auto value=rest.substr(separator+1);
+                    if(value=="en" || value=="ja")profile=value;
+                }
+            }
             else if(line.starts_with("ERROR|"))error=line.substr(6);
         };
         while(ReadFile(read_pipe,buffer,sizeof(buffer),&received,nullptr) && received){
@@ -112,7 +119,7 @@ void prepare_and_launch(){
         else SetEnvironmentVariableW(L"DIVA_HIDE_LOG",nullptr);
         std::wstring game=quote((root/L"build/diva/diva_boot.exe").wstring())+L" --root "+quote(prepared.wstring())+
             L" --settings-file "+quote((root/L"config/settings.ini").wstring())+
-            L" --language ja --window --cpu-renderer";
+            L" --language "+wide(profile)+L" --window --cpu-renderer";
         if(diagnostic_ms)game+=L" --max-runtime-ms "+std::to_wstring(diagnostic_ms);
         STARTUPINFOW game_start{};game_start.cb=sizeof(game_start);PROCESS_INFORMATION game_process{};
         if(!CreateProcessW(nullptr,game.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,root.c_str(),&game_start,&game_process))

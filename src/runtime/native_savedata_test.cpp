@@ -1,5 +1,6 @@
 #include "native_savedata.hpp"
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 void check(bool yes,const char* error){if(!yes)throw std::runtime_error(error);}
@@ -28,6 +29,7 @@ int main(int argc,char** argv){try{
     check(stopped && service.get_status(800001)==2 && memory.load32(request+28)==service.file_missing,"Existing save was disguised as absent or successful");
     // A new service instance must reload bytes from storage, not an in-memory
     // shortcut. Test in its isolated fixture slot; original PSP bytes stay put.
+    for(unsigned n=0;n<20;++n)memory.store8(request+76+n,0);
     field(76,"NATIVE");memory.store32(request+48,1);memory.store32(request+56,1);
     constexpr unsigned data=0x08820000u,icon=0x08830000u;
     memory.store32(request+116,data);memory.store32(request+120,64);memory.store32(request+124,37);
@@ -58,5 +60,33 @@ int main(int argc,char** argv){try{
     {std::fstream corrupt(writer.native_path(),std::ios::binary|std::ios::in|std::ios::out);corrupt.seekp(-1,std::ios::end);corrupt.put('!');}
     kon::NativeSavedata damaged(memory,files);damaged.init(request,4000000);stopped=false;try{damaged.update(4200000);}catch(const std::runtime_error&){stopped=true;}
     check(stopped && memory.load8(data)==0xCC && memory.load32(request+28)==0x12345678u,"Damaged native save was reported as successful or absent");
-    std::cout<<"PASS: timed save lifecycle, real absence, original PSP preservation, atomic PC autosave, fresh-service reload, metadata/icons and corrupt/short-buffer rejection\n";return 0;
+    auto write_guest=[&](unsigned at,const char* value){for(unsigned n=0;value[n];++n)memory.store8(at+n,static_cast<std::uint8_t>(value[n]));memory.store8(at+std::strlen(value),0);};
+    for(unsigned n=0;n<20;++n)memory.store8(request+76+n,0);
+    field(76,"LIST");memory.store32(request+48,1);memory.store32(request+56,1);
+    memory.store32(request+120,64);memory.store32(request+124,1);memory.store8(data,0x5Au);
+    kon::NativeSavedata list_writer(memory,files);
+    check(list_writer.init(request,5000000)==0 && list_writer.update(5200000)==0 && list_writer.result()==0,"LISTLOAD fixture could not be created");
+    list_writer.shutdown(5200100);list_writer.get_status(5220100);
+    const auto list=0x08850000u;
+    write_guest(list,"EMPTY");write_guest(list+20,"LIST");memory.store8(list+40,0);
+    for(unsigned n=0;n<20;++n)memory.store8(request+76+n,0);
+    memory.store32(request+96,list);memory.store32(request+48,4);memory.store32(request+124,0);memory.store8(data,0xCC);
+    kon::NativeSavedata list_reader(memory,files);
+    check(list_reader.init(request,6000000)==0 && list_reader.save_name()=="LIST","LISTLOAD did not resolve the saveNameList");
+    check(list_reader.update(6200000)==0 && list_reader.result()==0 && memory.load8(data)==0x5Au,"LISTLOAD did not load the selected slot");
+    list_reader.shutdown(6200100);list_reader.get_status(6220100);
+    for(unsigned n=0;n<20;++n)memory.store8(request+76+n,0);
+    write_guest(list,"MISSING");memory.store8(list+20,0);memory.store32(request+124,0);memory.store32(request+28,0x12345678u);
+    kon::NativeSavedata missing(memory,files);
+    check(missing.init(request,7000000)==0 && missing.update(7200000)==0 && memory.load32(request+28)==missing.no_data,"LISTLOAD without saves was not reported as absent");
+    for(unsigned n=0;n<20;++n)memory.store8(request+76+n,0);
+    field(60,"ULJM05472");field(76,"MAIN00");field(100,"SECURE.BIN");
+    memory.store32(request+48,4);memory.store32(request+56,1);
+    memory.store32(request+116,data);memory.store32(request+120,64);memory.store32(request+124,64);
+    for(unsigned n=0;n<64;++n)memory.store8(data+n,0);
+    kon::NativeSavedata fresh(memory,files);
+    check(fresh.init(request,8000000)==0 && fresh.update(8200000)==0 && fresh.result()==fresh.no_data,"Missing DIVA save was not reported as absent");
+    check(!std::filesystem::exists(fresh.native_path()),"Loading a save created a file instead of reporting absence");
+    check(memory.load8(data+28)==0 && memory.load8(data+47)==0,"Absent save fabricated song unlock flags in the game buffer");
+    std::cout<<"PASS: timed save lifecycle, real absence, original PSP preservation, atomic PC autosave, LISTLOAD selection/absence, missing-DIVA-save absence, metadata/icons and corrupt/short-buffer rejection\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

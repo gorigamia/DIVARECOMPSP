@@ -1,6 +1,6 @@
 ﻿# Project DIVA PSP (ULJM05472) — Native Recompilation (Prototype)
 
-A work-in-progress **static recompilation** prototype of *Hatsune Miku: Project DIVA* (PSP, first game, Japanese release **ULJM05472**) targeting **Windows x64**.
+A work-in-progress **static recompilation** prototype of *Hatsune Miku: Project DIVA* (PSP, first game, disc ID **ULJM05472**) targeting **Windows x64**. Both the original Japanese image and the community English v1.0 translation of that same game are supported as separate content profiles.
 
 This project translates the original game code ahead-of-time into native C++ and runs it with a custom PSP runtime layer (graphics, audio, input, file/media services, etc.). It is **not** an emulator and it does **not** include any original game data.
 
@@ -9,7 +9,7 @@ This project translates the original game code ahead-of-time into native C++ and
 ## Legal notice (important)
 
 - **Bring your own original game disc image (ISO).** This repository does **not** contain copyrighted game assets, executables from the game disc, or decrypted game data.
-- Only the **Japanese ULJM05472** image/profile is currently supported by this prototype flow. Other editions/translations (including English-patched images) are not compatible with the current profile.
+- Only the two inspected **ULJM05472** images are supported: the original Japanese "Japan, Asia" disc and the community **English v1.0** translation of that disc. Other editions, sequels and unrelated translations are not compatible. The English content comes from the ISO you supply; it is not included here.
 - This is an unofficial fan/technical project and is not affiliated with SEGA, Crypton Future Media, Sony, or any rights holders.
 - Third-party components and base projects keep their own licenses; see [LICENSE](LICENSE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and files under `src/`, `third_party/`, and `docs/`.
 
@@ -17,17 +17,17 @@ This project translates the original game code ahead-of-time into native C++ and
 
 Based on the project’s recorded local validation milestones (see `docs/EXECUCAO.md`, `docs/BOOT.md`):
 
-- **Boot/title/menu:** native AOT execution reaches the original title screen and enters menus.
+- **Boot/title/menu:** native AOT execution reaches the original title screen and enters menus on both supported content profiles; the English v1.0 ISO profile was smoke-tested after preparation (title/menu render with the translated assets).
 - **Opening movie:** PSMF video/audio path (H.264 + ATRAC3+ via local FFmpeg LGPL SDK integration) plays and returns to title in tested runs.
 - **Gameplay sample:** *World is Mine / NORMAL* completed to **CLEAR / GREAT** in a long diagnostic run using **synthetic controller input** (not a measurement of physical input latency).
-- **Save service checks:** atomic write/reload/metadata/icon handling and rejection of corrupted/short buffers passed in service-level tests (in-game save flow still requires broader validation).
+- **Save service checks:** atomic write/reload/metadata/icon handling and rejection of corrupted/short buffers passed in service-level tests. **LOAD GAME** opens the save list without closing the project and loads the player's saved data when present; no save is created automatically, so with no saved data the game reports its absence for the player to pick another slot or see the no-save message. Full in-game save flow still requires broader validation.
 - **Kernel/service tests:** additional synchronization/thread/event behavior covered by local verification binaries/tests.
 
 These results are environment-specific development evidence, not a compatibility guarantee.
 
 ## Current limitations
 
-- Japanese ULJM05472 profile only (current launcher/preparation flow rejects incompatible executables/editions).
+- Only the Japanese ULJM05472 and English v1.0 translation content profiles are prepared/validated; other ISOs and game titles are rejected by the launcher.
 - CPU-based renderer prototype (no claim of full GPU-accurate behavior yet).
 - Not all songs/difficulties/modes/editors/multiplayer flows validated.
 - Audio/video timing fidelity against real PSP hardware not fully measured.
@@ -67,9 +67,10 @@ Not included (by design): original ISOs, extracted game assets, decrypted EBOOT/
 A Windows x64 test build (prototype) is included under `build/diva/` for convenience so testers do not need to compile first. `Jogar-DIVA.exe` at the archive root is the same native launcher as `build/diva/diva_launcher.exe`, so it can be started with a double-click (no `.cmd` needed). The ISO preparation step also requires the included executable preparer at `build/decrypt-llvm/eboot_decrypt.exe` (with `libc++.dll` and `libunwind.dll` beside it).
 
 1. Double-click `Jogar-DIVA.exe` (or run `Jogar-DIVA.cmd` / `build/diva/diva_launcher.exe`).
-2. Select your original **Japanese ULJM05472** ISO when prompted.
-3. The launcher/preparation flow verifies the disc/profile, prepares a per-disc cache, and starts the native executable.
-4. On first use, preparation/extraction can take time; subsequent runs reuse verified cached data.
+2. Select either your original **Japanese ULJM05472** ISO or the **English v1.0** translation ISO when prompted.
+3. The launcher/preparation flow identifies the disc by hash, verifies the profile, prepares a per-disc cache, and starts the native executable.
+4. Each ISO has its own verified cache and language profile; to switch language, run the launcher again and pick the other ISO. Do not rely on the in-game **F1 > Language** row to swap profiles: the packaged launcher always starts the profile of the ISO you selected.
+5. On first use, preparation/extraction can take time; subsequent runs reuse verified cached data.
 
 Notes:
 - **Windows x64 only.** The included binaries were built with LLVM/MinGW tooling; if the app fails to start, install/update the Microsoft Visual C++ runtime and ensure required DLLs in `build/diva/` and `third_party/ffmpeg/bin/` are present (Git LFS must be pulled).
@@ -77,6 +78,22 @@ Notes:
 - `tools/play.ps1` supports launcher/direct-boot development modes (see `docs/LAUNCHER.md`).
 - Runtime/config paths and cache behavior are documented in `docs/LAUNCHER.md` and `docs/CONFIGURACOES.md`.
 - This is a prototype test build: expect bugs, missing compatibility, and incomplete features (see limitations/roadmap above). Please report issues with logs and reproduction steps.
+
+### Display, frame rate and image smoothing
+
+The included build now exposes the frame-rate and display settings in `config/settings.ini` (and in the in-game Graphics/Settings menu):
+
+```ini
+logic_fps=60       # 30 (original) to 240; game speed stays the same
+ui_aspect=1        # 0 original PSP, 1 16:9, 2 4:3, 3 fill the screen
+ui_scaling=1       # 0 sharp/pixelated, 1 smooth filtering, 2 integer scaling
+```
+
+- `logic_fps=60` makes the runtime advance the game clock in 60 Hz steps instead of 30 Hz while keeping songs, animations and judgment at the original speed. The 60 FPS clock is now applied to DIVA even with the CPU renderer (it was previously only active in the Vulkan path). The game's VBlank interrupt is paced at twice the logic rate, so menus/song timing are unchanged. The in-game FPS row changes this value immediately and saves it.
+- `ui_aspect=1` presents the 480x272 frame in 16:9, with letterboxing on 4:3/older monitors and full-width output on widescreen displays. `ui_aspect=0` keeps the original PSP framing, `2` is 4:3 and `3` stretches to fill.
+- `ui_scaling=1` uses smooth (HALFTONE) filtering when enlarging the image, which softens jagged edges ("serrilhados"). `0` keeps hard pixels and `2` uses integer scaling. `internal_scale=2` only applies when the Vulkan/GPU renderer is enabled; the shipped build still uses the CPU renderer at the original internal resolution.
+
+Validation: 30 s of diagnostic replay at `logic_fps=60` completed with no missing assets or failures; audio frames advanced at the original rate (within ~0.3% of the 30 FPS baseline at 25 s). The FPS setting is saved and restored on the next launch.
 
 ### Timing calibration (important for rhythm play)
 
@@ -87,6 +104,10 @@ input_offset_ms=40
 ```
 
 Positive values backdate your inputs so the game treats a press as happening earlier (try `20`, `40`, `60`, ...). Use a negative value if presses are judged too early. Default is `0`. The environment variable `KON_INPUT_OFFSET_MS` overrides the file for a single run. Each launch prints `input_offset_ms=<value>` in the interactive log under `analysis/native_interactive_ja.log` inside the prepared disc cache.
+
+### Save/load dialog
+
+Selecting **LOAD GAME** no longer closes the app: `sceUtilitySavedataInitStart` now accepts the list/numbered-save modes DIVA uses (`2`, `4`, `5`, `6`, `7`, `10`, `11`, `13`) and keeps the selected slot name for the following `GetStatus`/`Update`/`Shutdown` calls. A diagnostic replay that presses Triangle on the load screen twice completed without a crash and reached those modes. The save service test (`diva_savedata_verify`) passes, including LISTLOAD selection/absence and preservation of the original PSP save bytes. No save is created automatically: **LOAD GAME** loads the save you actually played and saved; with nothing saved it reports the absence / opens the save choice instead of showing a black screen, returning to the title, or leaving the song list empty.
 
 ## Building (high-level)
 

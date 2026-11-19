@@ -70,11 +70,14 @@ public:
         for(auto it=overrides_.rbegin();it!=overrides_.rend();++it)
             if(const auto candidate=*it/relative;std::filesystem::is_regular_file(candidate))return checked(candidate);
         // Both source sound banks have identical SHA256; prefer one common copy.
-        if (relative == "PSP_GAME/USRDIR/media/afs/DivaSoundList.afs")
-            return checked(root_ / "analysis/extracted/jp" / relative);
+        if (relative == "PSP_GAME/USRDIR/media/afs/DivaSoundList.afs"){
+            const auto shared = root_ / "analysis/extracted/jp" / relative;
+            if (std::filesystem::is_regular_file(shared)) return checked(shared);
+        }
         const auto localized = selected_ / relative;
         if (std::filesystem::is_regular_file(localized)) return checked(localized);
-        return checked(root_ / "analysis/extracted/jp" / relative);
+        const auto fallback = root_ / "analysis/extracted/jp" / relative;
+        return checked(std::filesystem::is_regular_file(fallback) ? fallback : localized);
     }
     std::filesystem::path resolve_directory(const std::string& guest_path) const {
         const auto relative=disc_relative(guest_path);
